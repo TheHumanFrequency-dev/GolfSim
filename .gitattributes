@@ -1,0 +1,9 @@
+# Normalize line endings (silences the LF/CRLF warnings on Windows)
+* text=auto eol=lf
+
+# Treat media as binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.mov  binary
+*.mp4  binary
