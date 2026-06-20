@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sequin Sim — Shot Visualizer</title>
+<style>
+  :root{ --bg:#10130f; --panel:#181c15; --line:#2a3122; --green:#7CFC4E; --green2:#39c46a;
+         --txt:#e8efe2; --dim:#8b9682; --accent:#cfff9e; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        padding:18px; line-height:1.4; }
+  h1{ font-size:18px; font-weight:600; letter-spacing:.3px; }
+  h1 span{ color:var(--green); }
+  .sub{ color:var(--dim); font-size:12px; margin:2px 0 16px; }
+  .wrap{ display:grid; grid-template-columns:300px 1fr; gap:16px; max-width:1100px; }
+  @media(max-width:760px){ .wrap{ grid-template-columns:1fr; } }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .clubs{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+  .clubs button{ flex:1 1 auto; background:#20261a; color:var(--txt); border:1px solid var(--line);
+        padding:7px 4px; border-radius:8px; font-size:12px; cursor:pointer; transition:.12s; }
+  .clubs button:hover{ border-color:var(--green2); }
+  .clubs button.on{ background:var(--green); color:#10130f; border-color:var(--green); font-weight:600; }
+  .ctrl{ margin:13px 0; }
+  .ctrl label{ display:flex; justify-content:space-between; font-size:12px; color:var(--dim); margin-bottom:5px; }
+  .ctrl label b{ color:var(--accent); font-variant-numeric:tabular-nums; font-weight:600; }
+  input[type=range]{ width:100%; accent-color:var(--green); }
+  canvas{ width:100%; display:block; background:#0c0f0a; border:1px solid var(--line); border-radius:10px; }
+  .cap{ font-size:11px; color:var(--dim); margin:6px 2px 14px; }
+  .stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px; }
+  .stat{ background:#20261a; border:1px solid var(--line); border-radius:9px; padding:10px; text-align:center; }
+  .stat .v{ font-size:22px; font-weight:600; color:var(--green); font-variant-numeric:tabular-nums; }
+  .stat .l{ font-size:10px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; margin-top:2px; }
+  .foot{ font-size:11px; color:var(--dim); margin-top:14px; }
+</style>
+</head>
+<body>
+  <h1>Sequin Sim <span>// shot visualizer</span></h1>
+  <div class="sub">Same drag + Magnus physics as the Python engine. Drag the sliders or pick a club.</div>
+  <div class="wrap">
+    <div class="panel">
+      <div class="clubs" id="clubs"></div>
+      <div class="ctrl"><label>Ball speed <b><span id="lbs">112</span> mph</b></label>
+        <input type="range" id="bs" min="40" max="190" step="1" value="112"></div>
+      <div class="ctrl"><label>Launch angle <b><span id="lla">16.0</span>°</b></label>
+        <input type="range" id="la" min="2" max="45" step="0.5" value="16"></div>
+      <div class="ctrl"><label>Back spin <b><span id="lback">5700</span> rpm</b></label>
+        <input type="range" id="back" min="1000" max="12000" step="100" value="5700"></div>
+      <div class="ctrl"><label>Side spin <b><span id="lside">0</span> rpm</b></label>
+        <input type="range" id="side" min="-2500" max="2500" step="50" value="0"></div>
+      <div class="cap">Side spin &gt; 0 curves right (fade/slice) for a right-handed golfer.</div>
+    </div>
+    <div>
+      <canvas id="sideV" width="760" height="300"></canvas>
+      <div class="cap">Side view — carry distance vs height</div>
+      <canvas id="topV" width="760" height="240"></canvas>
+      <div class="cap">Top-down — shot shape and offline</div>
+      <div class="stats">
+        <div class="stat"><div class="v" id="sCarry">—</div><div class="l">Carry yd</div></div>
+        <div class="stat"><div class="v" id="sTotal">—</div><div class="l">Total yd</div></div>
+        <div class="stat"><div class="v" id="sApex">—</div><div class="l">Apex ft</div></div>
+        <div class="stat"><div class="v" id="sOff">—</div><div class="l">Offline yd</div></div>
+        <div class="stat"><div class="v" id="sDesc">—</div><div class="l">Descent °</div></div>
+        <div class="stat"><div class="v" id="sShape">—</div><div class="l">Shape</div></div>
+      </div>
+      <div class="foot">Practice-grade model. Coefficients calibratable; this mirrors flight.py.</div>
+    </div>
+  </div>
+
+<script>
+const M=0.04593,R=0.021335,A=Math.PI*R*R,RHO=1.225,G=9.81;
+const MPH=0.44704,RPM=2*Math.PI/60,YARD=1.09361;
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const nrm=a=>Math.hypot(a[0],a[1],a[2]);
+function accel(v,om){
+  const sp=nrm(v); if(sp<1e-6)return[0,-G,0];
+  const s=R*nrm(om)/sp, cd=0.22+0.30*Math.min(s,0.5), cl=Math.min(0.10+0.80*s,0.33);
+  const dk=-0.5*RHO*A*cd*sp/M;
+  const md=cross(om,v), n=nrm(md); let lf=[0,0,0];
+  if(n>1e-9){const lk=0.5*RHO*A*cl*sp*sp/M/n; lf=[lk*md[0],lk*md[1],lk*md[2]];}
+  return[dk*v[0]+lf[0], dk*v[1]+lf[1]-G, dk*v[2]+lf[2]];
+}
+function simulate(ballMph,launchDeg,backRpm,sideRpm){
+  const v0=ballMph*MPH, th=launchDeg*Math.PI/180;
+  let v=[v0*Math.cos(th),v0*Math.sin(th),0];
+  let ba=cross(v.map(x=>x/nrm(v)),[0,1,0]); const bn=nrm(ba); ba=ba.map(x=>x/bn);
+  const om=[backRpm*RPM*ba[0], backRpm*RPM*ba[1]-sideRpm*RPM, backRpm*RPM*ba[2]];
+  let p=[0,0,0]; const pts=[[0,0,0]]; const dt=0.002; let apex=0,n=0;
+  while(p[1]>=0 && n<20000){
+    const k1=accel(v,om),
+      k2=accel([v[0]+.5*dt*k1[0],v[1]+.5*dt*k1[1],v[2]+.5*dt*k1[2]],om),
+      k3=accel([v[0]+.5*dt*k2[0],v[1]+.5*dt*k2[1],v[2]+.5*dt*k2[2]],om),
+      k4=accel([v[0]+dt*k3[0],v[1]+dt*k3[1],v[2]+dt*k3[2]],om);
+    v=[v[0]+dt/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]),
+       v[1]+dt/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]),
+       v[2]+dt/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2])];
+    p=[p[0]+v[0]*dt,p[1]+v[1]*dt,p[2]+v[2]*dt]; pts.push([...p]); apex=Math.max(apex,p[1]); n++;
+  }
+  const carry=p[0]*YARD, side=p[2]*YARD, apexFt=apex*YARD*3;
+  const desc=Math.atan2(-v[1],Math.hypot(v[0],v[2]))*180/Math.PI;
+  const roll=Math.max(0,carry*(0.18*Math.max(0,(45-desc)/45)));
+  return{carry,total:carry+roll,apexFt,side,desc,pts};
+}
+
+const clubs={ Driver:[167,11,2700,0], "3-wood":[158,12,3600,0], "5-iron":[133,13,4900,0],
+  "7-iron":[112,16,5700,0], "9-iron":[100,22,7300,0], PW:[107,29,9800,0] };
+const $=id=>document.getElementById(id);
+const ids=["bs","la","back","side"], lbl={bs:"lbs",la:"lla",back:"lback",side:"lside"};
+
+function setClub(name){
+  const [b,l,k,s]=clubs[name];
+  $("bs").value=b; $("la").value=l; $("back").value=k; $("side").value=s;
+  [...document.querySelectorAll("#clubs button")].forEach(x=>x.classList.toggle("on",x.textContent===name));
+  draw();
+}
+const cb=$("clubs");
+Object.keys(clubs).forEach(n=>{const b=document.createElement("button");b.textContent=n;b.onclick=()=>setClub(n);cb.appendChild(b);});
+
+function line(ctx,w,h,padL,padB,maxX,maxY,toX,toY,label){
+  ctx.strokeStyle="#222a1c"; ctx.fillStyle="#5a6450"; ctx.font="10px sans-serif"; ctx.lineWidth=1;
+  for(let gx=0; gx<=maxX; gx+=50){ const px=padL+gx/maxX*(w-padL-10);
+    ctx.beginPath();ctx.moveTo(px,10);ctx.lineTo(px,h-padB);ctx.stroke();
+    ctx.fillText(gx+"",px-6,h-padB+13); }
+}
+function draw(){
+  ids.forEach(i=>$(lbl[i]).textContent=(i==="la")?(+$(i).value).toFixed(1):$(i).value);
+  const r=simulate(+$("bs").value,+$("la").value,+$("back").value,+$("side").value);
+  // scales
+  const maxX=Math.max(50,Math.ceil(r.carry*1.12/50)*50);
+  // side view
+  let c=$("sideV"), x=c.getContext("2d"), w=c.width,h=c.height,padL=34,padB=22;
+  x.clearRect(0,0,w,h);
+  const maxH=Math.max(30,Math.ceil(r.apexFt*1.2/30)*30);
+  line(x,w,h,padL,padB,maxX,maxH);
+  x.fillStyle="#5a6450"; for(let gy=0;gy<=maxH;gy+=30){const py=h-padB-gy/maxH*(h-padB-12);x.fillText(gy+"",4,py+3);}
+  x.strokeStyle="#7CFC4E"; x.lineWidth=2.5; x.beginPath();
+  r.pts.forEach((p,i)=>{const px=padL+p[0]*YARD/maxX*(w-padL-10), py=h-padB-(p[1]*YARD*3)/maxH*(h-padB-12);
+    i?x.lineTo(px,py):x.moveTo(px,py);}); x.stroke();
+  const lp=r.pts[r.pts.length-1]; x.fillStyle="#cfff9e";
+  x.beginPath();x.arc(padL+lp[0]*YARD/maxX*(w-padL-10),h-padB,4,0,7);x.fill();
+  // top view
+  c=$("topV"); x=c.getContext("2d"); w=c.width;h=c.height;padB=0;
+  x.clearRect(0,0,w,h);
+  const padLt=34, span=Math.max(20,Math.ceil(Math.abs(r.side)*1.4/10)*10+10), mid=h/2;
+  line(x,w,h,padLt,18,maxX,1);
+  x.strokeStyle="#2f3a24"; x.lineWidth=1; x.beginPath();x.moveTo(padLt,mid);x.lineTo(w-10,mid);x.stroke();
+  x.fillStyle="#5a6450"; x.fillText("+"+span+"y",4,mid-span/span*(mid-12)+3==0?12:12);
+  x.fillText("R",6,16); x.fillText("L",6,h-6);
+  x.strokeStyle="#7CFC4E"; x.lineWidth=2.5; x.beginPath();
+  r.pts.forEach((p,i)=>{const px=padLt+p[0]*YARD/maxX*(w-padLt-10), py=mid+(p[2]*YARD)/span*(mid-12);
+    i?x.lineTo(px,py):x.moveTo(px,py);}); x.stroke();
+  x.fillStyle="#cfff9e"; x.beginPath();
+  x.arc(padLt+lp[0]*YARD/maxX*(w-padLt-10),mid+(lp[2]*YARD)/span*(mid-12),4,0,7);x.fill();
+  // stats
+  $("sCarry").textContent=Math.round(r.carry); $("sTotal").textContent=Math.round(r.total);
+  $("sApex").textContent=Math.round(r.apexFt); $("sOff").textContent=(r.side>=0?"+":"")+Math.round(r.side);
+  $("sDesc").textContent=Math.round(r.desc);
+  $("sShape").textContent=r.side>3?"Fade":r.side<-3?"Draw":"Straight";
+  $("sShape").style.fontSize="15px";
+}
+ids.forEach(i=>$(i).addEventListener("input",()=>{ 
+  [...document.querySelectorAll("#clubs button")].forEach(x=>x.classList.remove("on")); draw(); }));
+setClub("7-iron");
+</script>
+</body>
+</html>
