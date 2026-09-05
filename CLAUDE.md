@@ -70,3 +70,19 @@ real measurement (mat long-side mm or club length) to convert px→mph; path and
 - Don't add a clubface-from-one-camera "solution."
 - Don't add heavy dependencies or a framework.
 - Don't scatter tuning constants; keep them in the marked block per file.
+## Where the work list lives
+
+This repo keeps no to-do list of its own. The cross-repo work queue lives in the vault
+(`thf-second-brain`), and all vault reads and writes go through Basic Memory (project
+`thf`), never the filesystem:
+
+- **`05-Personal/Assistant/Task-Ledger.md`** — what is actually on deck, in three lanes
+  (Now / Waiting On / Later). **Read this one first.**
+- **`03-Business/Operations/2026-07-08 — Master Punch List Across THF Ecosystem.md`** —
+  the exhaustive append-only archive. Nothing is deleted, so it is the place to check
+  whether something was already tried.
+- `TASKS.md` — the ranked doing-list. **Its ranking went stale on 2026-09-04** and it
+  carries a banner saying so; use it for the shape of the tiers, not their order.
+
+Added 2026-09-04: an audit found only 1 of 26 repos with a `CLAUDE.md` named any task
+surface, so a session opening this repo cold had no route to the work queue.
