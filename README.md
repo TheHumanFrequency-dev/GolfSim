@@ -5,7 +5,7 @@ a simulated ball flight. Built and validated on a real mat.
 
 ## The pipeline
 ```
-swing video ──► swing.py ──┐  (club speed, face, attack, impact frame)
+swing video ──► swing.py ──┐  (club speed, path, attack, impact frame; face stays an estimate)
                            ├─► impact.py ──► flight.py ──► shot card / visualizer
 strike photo ─► divot.py ──┘  (club path, strike quality, heel/toe)
 ```
@@ -25,7 +25,7 @@ strike photo ─► divot.py ──┘  (club path, strike quality, heel/toe)
 ## The one blocker
 - **swing.py** — club + body capture from a phone video. **Not functional yet:
   it needs a slow-mo swing clip from you.** See the header in swing.py for exactly
-  how to shoot it (tripod, 120/240fps, front-on, plus a 1s empty-mat reference).
+  how to shoot it (tripod, 240fps, down-the-line, plus a 1s empty-mat reference).
   Until then, pipeline.py takes club speed / face / attack as estimates.
 
 ## Run it
@@ -41,6 +41,8 @@ python pipeline.py struck.jpg --club driver --club-speed 110 --face -1.5
 
 # open shot_visualizer.html in any browser
 ```
+
+Operating rules and conventions: `CLAUDE.md`; contribution workflow: `CONTRIBUTING.md`.
 
 ## Honesty note
 This is a practice/feel tool, not a measurement instrument. The divot read is
